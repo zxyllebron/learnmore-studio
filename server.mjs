@@ -26,7 +26,7 @@ const courseSchema=obj({title:str,subtitle:str,summary:str,prerequisites:arr(str
 const storySchema=obj({title:str,subtitle:str,label:str,sections:arr(obj({title:str,text:str,concept:str}))});
 
 function reply(res,status,data){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data));}
-async function readBody(req){let text='';for await(const chunk of req){text+=chunk;if(Buffer.byteLength(text)>2_000_000)throw new Error('材料超过 2 MB，请分段导入。');}try{return JSON.parse(text||'{}');}catch{throw new Error('请求格式不正确。');}}
+export async function readBody(req){const chunks=[];let size=0;for await(const chunk of req){const bytes=Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk);size+=bytes.length;if(size>2_000_000)throw new Error('材料超过 2 MB，请分段导入。');chunks.push(bytes);}try{return JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}');}catch{throw new Error('请求格式不正确。');}}
 function bounded(value,max=60000){return typeof value==='string'?value.slice(0,max):'';}
 function codexStatus(){try{const r=spawnSync(CODEx,['login','status'],{encoding:'utf8',timeout:8000,windowsHide:true});return {available:!r.error,loggedIn:r.status===0};}catch{return {available:false,loggedIn:false};}}
 

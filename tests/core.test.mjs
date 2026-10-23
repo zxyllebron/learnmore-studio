@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {course,gradeAnswer} from '../dist/content.mjs';
-import {createServer,extractConversation} from '../server.mjs';
+import {createServer,extractConversation,readBody} from '../server.mjs';
+
+test('Chinese materials remain intact across arbitrary UTF-8 chunk boundaries',async()=>{
+  const value={message:'机器学习🙂，特征与标签。'};const bytes=Buffer.from(JSON.stringify(value));
+  async function* chunks(){for(let i=0;i<bytes.length;i+=2)yield bytes.subarray(i,i+2);}
+  assert.deepEqual(await readBody(chunks()),value);
+});
 
 test('all nine numerical answers agree with independently calculated results',()=>{
   const mse=(pred,y)=>pred.reduce((s,p,i)=>s+(p-y[i])**2,0)/y.length;
