@@ -1,10 +1,12 @@
 import {course as demo,stories,references,gradeAnswer} from './content.mjs';
+import {renderFrame,overviewView,tutorView,sourcesView} from './views.mjs';
+import {isLearningFile,droppedFiles,signature,supportedExtensions} from './files.mjs';
 
 const icons={book:'<path d="M4 4h5a4 4 0 0 1 3 1.4A4 4 0 0 1 15 4h5v15h-5a4 4 0 0 0-3 1.4A4 4 0 0 0 9 19H4z"/><path d="M12 6v14"/>',overview:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',spark:'<path d="m12 3 2.7 6.3L21 12l-6.3 2.7L12 21l-2.7-6.3L3 12l6.3-2.7z"/>',story:'<path d="m4 20 3-8L18 2l4 4-11 11zM7 12l4 5M4 20l5-1"/>',formula:'<path d="M8 20 11 4h6M5 10h11M5 20h5"/>',quiz:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 2h6v4H9zM9 11h6M9 15h4"/>',folder:'<path d="M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',arrow:'<path d="M5 12h14m-6-6 6 6-6 6"/>',chevron:'<path d="m9 5 7 7-7 7"/>',left:'<path d="m15 5-7 7 7 7"/>',plus:'<path d="M12 5v14M5 12h14"/>',search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',check:'<path d="m5 12 4 4L19 6"/>',send:'<path d="m12 19 0-14m-6 6 6-6 6 6"/>',close:'<path d="m6 6 12 12M6 18 18 6"/>',download:'<path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',refresh:'<path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 6M4 12l2 6a7 7 0 0 0 12-1"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.1"/>',leaf:'<path d="M20 3C9 2 2 9 6 16s14 4 14-13ZM5 21 16 9"/>',print:'<path d="M7 8V3h10v5M7 17H3V9h18v8h-4M7 14h10v7H7z"/>',trash:'<path d="M3 6h18M9 3h6M6 6l1 15h10l1-15M10 10v7M14 10v7"/>'};
 const svg=(name,cls='')=>`<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]||icons.book}</svg>`;
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $=s=>document.querySelector(s);
-const pages={overview:'知识概览',course:'课程阅读',story:'故事学习',glossary:'名词与公式',quiz:'练习与测验',sources:'学习材料'};
+const pages={overview:'概览',course:'课程',story:'故事',glossary:'名词与公式',quiz:'练习',sources:'材料'};
 function load(key,fallback){try{return JSON.parse(localStorage.getItem(key))??fallback;}catch{return fallback;}}
 function save(key,value){try{localStorage.setItem(key,JSON.stringify(value));}catch{toast('浏览器存储空间不足，本次内容仍可导出。');}}
 let data=load('learnmore-course-v1',demo);
@@ -13,30 +15,36 @@ let materials=load('learnmore-materials-v1',[]);
 if(!Array.isArray(materials))materials=[];
 let learning=load(`learnmore-progress-${data.id}`,{read:[],correct:[]});
 let page=pages[location.hash.slice(1)]?location.hash.slice(1):'overview';
-let chapter=0,mode='slides',genre='wuxia',storyLength='auto',customStyle='',generatedStories={},glossaryTab='terms',level='easy',questionIndex=0,termQuery='',chat=[],chatOpen=false,busy=null,sourcePreview='',sessions=[],runtime={mode:'checking',available:false,loggedIn:false},projectRoot='D:\\Learnmore',demoW=0,demoB=0;
+let chapter=0,mode='slides',genre='wuxia',storyLength='auto',customStyle='',generatedStories={},glossaryTab='terms',level='easy',questionIndex=0,termQuery='',chat=[],busy=null,sourcePreview='',sessions=[],runtime={mode:'checking',available:false,loggedIn:false},projectRoot='',demoW=0,demoB=0;
+if(page==='sources')page='overview';
+let chatDraft='',materialDraft='',importBusy=false,importLabel='',materialNotice='',modalKind='';
+chat=load(`learnmore-chat-${data.id}`,[]);if(!Array.isArray(chat))chat=[];
+generatedStories=load(`learnmore-stories-${data.id}`,{});
 const totalMinutes=()=>data.chapters.reduce((n,c)=>n+Number(c.minutes||0),0);
-const pct=()=>Math.round(learning.read.length/data.chapters.length*100);
 const persist=()=>save(`learnmore-progress-${data.id}`,learning);
 let toastTimer;
 function toast(text){$('#toast').textContent=text;$('#toast').classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),4200);}
-const statusLabel=()=>runtime.mode==='checking'?'连接检测中':runtime.loggedIn?'本机 Codex 已连接':'在线阅读版';
 const btn=(text,action,style='light',extra='')=>`<button class="btn btn-${style}" data-action="${action}" ${extra}>${text}</button>`;
 
 function render(){
-  const nav=Object.entries(pages).map(([id,label])=>`<button data-nav="${id}" class="${page===id?'active':''}" ${page===id?'aria-current="page"':''}>${svg({overview:'overview',course:'book',story:'spark',glossary:'formula',quiz:'quiz',sources:'folder'}[id])}<span>${label}</span>${id==='sources'&&materials.length?`<span class="count">${materials.length}</span>`:''}</button>`).join('');
-  $('#app').innerHTML=`<aside class="sidebar"><a class="brand" href="#overview" aria-label="知序 Learnmore 首页"><span class="brand-mark">${svg('book')}</span><span><strong>知序</strong><small>LEARNMORE</small></span></a><p class="space-label">我的学习空间</p><nav class="nav" aria-label="主要导航">${nav}</nav><div class="side-bottom"><div class="journey"><div class="row"><strong>让知识，慢慢生长</strong>${svg('leaf')}</div><div class="progress-track"><i style="width:${pct()}%"></i></div><p>本课程已读 ${learning.read.length} / ${data.chapters.length} 章<br>每一次好奇，都算数。</p></div><div class="profile"><span class="avatar">J</span><div><strong>我的工作台</strong><small>Personal learning space</small></div></div></div></aside><div class="main"><header class="topbar"><div class="breadcrumb"><button class="mobile-menu" data-action="mobile-nav" aria-label="打开导航">${svg('menu')}</button><span>我的空间</span><span>/</span><strong>${pages[page]}</strong></div><div class="top-actions"><button class="search-button" data-action="search" aria-label="搜索知识点">${svg('search')}<span>搜索知识点</span><span class="key">⌘ K</span></button>${btn(svg('plus')+'导入材料','import','primary')}</div></header><main class="content" id="main-content">${renderPage()}</main></div>${renderTutor()}`;
-  if(chatOpen&&$('#chat-history'))$('#chat-history').scrollTop=$('#chat-history').scrollHeight;
+  const position=$('#main-content')?.scrollTop||0;const focused=document.activeElement?.id;const cursor=document.activeElement?.selectionStart;
+  $('#app').innerHTML=renderFrame(snapshot(),renderPage(),renderTutor());
+  $('#main-content').scrollTop=position;
+  if($('#chat-history'))$('#chat-history').scrollTop=$('#chat-history').scrollHeight;
+  if(modalKind==='materials'&&$('#modal').open)renderMaterialsDialog();
+  if(focused&&document.getElementById(focused)){const field=document.getElementById(focused);field.focus({preventScroll:true});if(typeof cursor==='number'&&field.setSelectionRange)try{field.setSelectionRange(cursor,cursor);}catch{}}
 }
-function heading(eyebrow,title,description,right=''){return `<div class="page-eyebrow"><span class="dot"></span>${eyebrow}</div><div class="page-heading"><div><h1>${esc(title)}</h1><p>${esc(description)}</p></div>${right}</div>`;}
+
+function heading(eyebrow,title,description,right=''){
+  return `<div class="page-heading"><div><h1>${esc(page==='course'?data.title:pages[page])}</h1>${page==='course'?`<p>${esc(data.subtitle)}</p>`:''}</div>${right}</div>`;
+}
+
 function referenceHtml(){return data.id==='machine-learning'?`<div class="references">延伸阅读 · ${references.map(r=>`<a href="${r.url}" target="_blank" rel="noreferrer">${esc(r.name)}</a>`).join('')}<br>课程与题目为原创讲解；参考上述公开教材的知识体系与计算题型。</div>`:'';}
-function heroArt(){return `<div class="hero-art" aria-hidden="true"><svg viewBox="0 0 400 280" fill="none"><defs><linearGradient id="sphere" x1="120" y1="70" x2="290" y2="230" gradientUnits="userSpaceOnUse"><stop stop-color="#f7faed"/><stop offset="1" stop-color="#c5d6a6"/></linearGradient><filter id="shadow"><feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#4a672c" flood-opacity=".12"/></filter></defs><g stroke="#c6d5af" stroke-width=".7"><ellipse cx="218" cy="145" rx="162" ry="81" transform="rotate(-26 218 145)"/><ellipse cx="218" cy="145" rx="145" ry="111" transform="rotate(31 218 145)" stroke-dasharray="3 6"/><circle cx="218" cy="145" r="107" stroke-dasharray="2 5"/><path d="M55 146h315M218 24v242" stroke-dasharray="2 6"/></g><g filter="url(#shadow)"><circle cx="219" cy="145" r="76" fill="url(#sphere)"/><g stroke="#9eb784" stroke-width=".8" opacity=".7"><ellipse cx="219" cy="145" rx="76" ry="28"/><ellipse cx="219" cy="145" rx="76" ry="52"/><ellipse cx="219" cy="145" rx="29" ry="76" transform="rotate(25 219 145)"/><ellipse cx="219" cy="145" rx="55" ry="76" transform="rotate(25 219 145)"/><path d="m155 105 128 80m-134-56 139 29m-111-73 87 118"/></g><path d="m182 158 24-34 26 15 31-43M177 165l27 22 32-34 32 14" stroke="#698746" stroke-width="1.3"/><g fill="#6b8749"><circle cx="182" cy="158" r="4"/><circle cx="206" cy="124" r="4"/><circle cx="232" cy="139" r="4"/><circle cx="263" cy="96" r="3"/><circle cx="204" cy="187" r="3"/><circle cx="236" cy="153" r="4"/></g></g><g fill="white" stroke="#e0e8d3"><rect x="77" y="58" width="83" height="34" rx="8"/><rect x="270" y="64" width="84" height="34" rx="8"/><rect x="72" y="198" width="83" height="34" rx="8"/><rect x="273" y="208" width="91" height="34" rx="8"/></g><g fill="#7c8f63" font-size="10" font-family="sans-serif"><text x="94" y="79">从数据出发</text><text x="285" y="85">理解 · 连接</text><text x="90" y="219">ŷ = wx + b</text><text x="290" y="229">让知识生长</text></g><circle cx="332" cy="158" r="5" fill="#a1bc76"/><circle cx="112" cy="133" r="4" fill="#bacb9b"/><path d="M333 148v-9m0 38v-9m-10-10h-9m38 0h-9" stroke="#b7c899"/></svg></div>`;}
+
 function renderOverview(){
-  const next=data.chapters.findIndex(c=>!learning.read.includes(c.id));const current=next<0?data.chapters.length-1:next;
-  return heading('A little curiosity, a little progress','从看懂，到真正学会。','把零散的信息串成线，按自己的节奏，走进知识的深处。',`<span class="badge"><span class="dot"></span>${esc(data.id==='machine-learning'?'机器学习 · 入门路径':'个人课程 · 已生成')}</span>`)+
-  `<section class="hero"><div class="hero-copy"><div class="eyebrow">你的专属学习路径 <span>↗</span></div><h2>${data.id==='machine-learning'?'机器学习，<br>从直觉到公式。':esc(data.title)}</h2><p>${esc(data.subtitle)}<br>${data.id==='machine-learning'?'从一条直线开始，理解模型、误差与每一步学习。':'沿着知识脉络，建立属于自己的理解。'}</p><div class="hero-actions">${btn('开始学习 '+svg('arrow'),'start','primary')}<span>${data.chapters.length} 个章节 · 约 ${totalMinutes()} 分钟 · 自定节奏</span></div></div>${heroArt()}</section>
-  <div class="stats">${[[data.chapters.length,'章节','循序渐进的知识路径','book',''],[data.glossary.length,'个','值得记住的核心名词','folder','blue'],[data.formulas.length,'组','拆开讲明白的底层公式','formula','orange'],[data.questions.length,'道','从简单到困难的练习','quiz','purple']].map(([v,u,t,i,c])=>`<div class="stat"><span class="stat-icon ${c}">${svg(i)}</span><div><strong>${v}<small>${u}</small></strong><p>${t}</p></div></div>`).join('')}</div>
-  <div class="overview-grid"><section><div class="section-heading"><h2>你的学习路线<span>一步一步，建立理解</span></h2><button class="text-button" data-nav="course">全部章节 ${svg('arrow')}</button></div><div class="path-card">${data.chapters.map((c,i)=>`<div class="path-item ${i===current?'current':''}"><span class="step ${learning.read.includes(c.id)?'done':''}">${learning.read.includes(c.id)?svg('check'):String(i+1).padStart(2,'0')}</span><div><h3>${esc(c.title)}</h3><p>${esc(c.kicker)} · ${c.minutes} 分钟</p></div><button class="path-action" data-chapter="${i}" aria-label="阅读${esc(c.title)}">${i===current?'<span class="mini-pill">'+(learning.read.includes(c.id)?'再读一次':'从这里开始')+'</span>':svg('chevron')}</button></div>`).join('')}</div></section><section><div class="section-heading"><h2>换一种方式理解</h2><span class="muted" style="font-size:10px">LEARN DIFFERENTLY</span></div><div class="story-promo"><div class="eyebrow">知识，也可以很好看</div><h3>把原理放进故事里，<br>让理解多一点想象。</h3><p>在江湖、星际或日常里，和角色一起探索知识的来龙去脉。</p>${svg('leaf')}<div class="story-pills"><button data-story="wuxia">武侠</button><button data-story="scifi">科幻</button><button data-story="romance">言情</button><button data-story="custom">自定义 ↗</button></div><button class="text-button" data-nav="story">进入故事世界 ${svg('arrow')}</button></div><div class="recall"><div class="recall-top">${svg('spark')}先想一个小问题</div><p>为什么在训练数据上表现很好，<br>也不一定说明模型真的学会了？</p><button class="text-button" data-ask="为什么训练数据上表现很好，也不一定说明模型真的学会了？">和老师聊聊 ${svg('arrow')}</button></div></section></div><div class="overview-summary">${esc(data.summary)}</div><div class="bottom-note">${svg('leaf')}理解比赶进度更重要。你随时可以停下来，问一个“为什么”。</div>`;
+  return overviewView(snapshot());
 }
+
 function gradientLab(){const loss=(([1,2].reduce((n,x)=>n+(demoW*x+demoB-2*x)**2,0))/4);return `<div class="section-spacing"><h3>自己走一步 · 互动实验</h3><p>两条训练数据 (1, 2)、(2, 4)，学习率 α = 0.1。点击后同时更新 w、b。</p><div class="formula" id="gradient-values">w = ${demoW.toFixed(4)}，b = ${demoB.toFixed(4)}，J = ${loss.toFixed(4)}</div><div class="toolbar" style="margin-top:12px">${btn('沿梯度走一步','gradient-step','soft')}${btn('回到起点','gradient-reset','light')}</div></div>`;}
 function chapterBody(c,i,book=false){return `<section class="${book?'book-chapter':''}"><div class="eyebrow">CHAPTER ${String(i+1).padStart(2,'0')} <span>·</span> ${esc(c.kicker)} <span>· ${c.minutes} MIN</span></div><h2>${esc(c.title)}</h2><div class="body-text">${esc(c.explanation)}</div><h3>用一个具体例子，算明白</h3><div class="example">${esc(c.example)}</div><h3>把它写成公式</h3><div class="formula">${esc(c.formula)}</div><p class="formula-note">${esc(c.formulaExplanation)}</p><div class="callout">这一章，记住一句话：${esc(c.takeaway)}</div>${c.id==='gradient'&&data.id==='machine-learning'?gradientLab():''}${book?btn(learning.read.includes(c.id)?'✓ 已读完本章':'标记已读','mark-read','soft',`data-index="${i}"`):''}</section>`;}
 function renderCourse(){const c=data.chapters[chapter]||data.chapters[0];return heading('Read, connect, understand','好知识，值得慢慢读。',data.title,`<div class="segmented"><button data-mode="slides" class="${mode==='slides'?'active':''}">课件模式</button><button data-mode="book" class="${mode==='book'?'active':''}">书本模式</button></div>`)+`<div class="toolbar"><span class="badge">${svg('clock')} ${totalMinutes()} 分钟 · ${data.chapters.length} 章</span><span class="badge">先备知识：${esc(data.prerequisites.join(' / '))}</span><div class="export-menu"><select id="export-select" aria-label="导出课程"><option value="">导出学习内容</option value="print">PDF / 打印</option><option value="book">完整阅读版 HTML</option><option value="markdown">课程 Markdown</option><option value="glossary">名词与公式 Markdown</option></select></div></div><div class="course-layout"><nav class="chapter-list" aria-label="章节目录"><p>课程目录 · ${data.chapters.length} CHAPTERS</p>${data.chapters.map((c,i)=>`<button class="${chapter===i?'active':''}" data-chapter="${i}"><small>${learning.read.includes(c.id)?'✓':String(i+1).padStart(2,'0')}</small>${esc(c.title)}</button>`).join('')}</nav><article class="reading">${mode==='book'?data.chapters.map((c,i)=>chapterBody(c,i,true)).join(''):chapterBody(c,chapter)}${mode==='slides'?`<div class="reading-footer">${btn(svg('left')+'上一章','prev-chapter','light',chapter===0?'disabled':'')}<span class="muted" style="font-size:10px">${chapter+1} / ${data.chapters.length}</span>${btn(chapter===data.chapters.length-1?'完成本章，去练习 '+svg('check'):'读完，下一章 '+svg('arrow'),'next-chapter','primary')}</div>`:''}${referenceHtml()}</article></div>`;}
@@ -49,26 +57,93 @@ function renderGlossary(){const q=termQuery.toLowerCase();const terms=data.gloss
 function currentQuestions(){return data.questions.filter(q=>q.difficulty===level);}
 let answerFeedback=null,showHint=false,showSolution=false;
 function renderQuiz(){const qs=currentQuestions();questionIndex=Math.min(questionIndex,Math.max(0,qs.length-1));const q=qs[questionIndex];return heading('Make understanding measurable','学会了，就亲手算一次。','给自己一点挑战。先独立尝试，再看提示与逐步解析。',`<span class="badge">已掌握 ${learning.correct.length} / ${data.questions.length} 题</span>`)+`<div class="tabs">${[['easy','简易 · 代入与直觉'],['medium','适中 · 计算与连接'],['hard','困难 · 综合与推导']].map(([id,t])=>`<button data-level="${id}" class="${id===level?'active':''}">${t}</button>`).join('')}</div>${q?`<div class="quiz-layout"><article class="question-card"><div class="question-meta"><span class="level-badge ${level}">${{easy:'简易',medium:'适中',hard:'困难'}[level]}</span><span>第 ${questionIndex+1} / ${qs.length} 题</span><span style="margin-left:auto">计算题 · 独立作答</span></div><h2>${esc(q.title)}</h2><div class="question-prompt">${esc(q.prompt)}</div><form id="answer-form" class="answer-area"><label><span class="hidden">你的答案</span><input id="quiz-answer" autocomplete="off" inputmode="decimal" placeholder="输入你的计算结果" value="${esc(answerFeedback?.input||'')}"><span class="answer-unit">${esc(q.unit)}</span></label><button class="btn btn-primary" type="submit">检查答案 ${svg('arrow')}</button></form><div class="row"><button class="text-button" data-action="hint">${svg('spark')}${showHint?'收起提示':'需要一点提示？'}</button><button class="text-button" data-action="solution">${showSolution?'收起解析':'查看逐步解析'}</button></div>${showHint?`<div class="callout">${esc(q.hint)}</div>`:''}${answerFeedback?`<div class="answer-result ${answerFeedback.correct?'':'wrong'}">${answerFeedback.valid?(answerFeedback.correct?'✓ 算对了！再看看推导，确认每一步都理解。':'还差一点。检查损失系数、正负号和代入过程，再试一次。'):'请输入一个数值，例如 0.5 或 -2；无需填写单位。'}${answerFeedback.valid&&!answerFeedback.correct?'<br>你也可以展开提示，或在下方请老师检查思路。':''}</div>`:''}${showSolution?`<div class="solution"><strong>一步一步来</strong><ol>${q.steps.map(s=>`<li>${esc(s)}</li>`).join('')}</ol><p>参考结果：${q.answer} ${esc(q.unit)}${q.tolerance>0?` · 允许绝对误差 ${q.tolerance}`:''}</p><button class="text-button" data-ask="请讲解这道题，重点解释为什么这么计算：${esc(q.prompt)}">让老师再讲一次 ${svg('arrow')}</button></div>`:''}<div class="reading-footer">${btn(svg('left')+'上一题','prev-question','light',questionIndex===0?'disabled':'')}${btn(questionIndex===qs.length-1?'换个难度挑战 '+svg('arrow'):'下一题 '+svg('arrow'),'next-question','soft')}</div></article><aside class="quiz-sidebar"><h3>这组练习</h3><div class="question-grid">${qs.map((q,i)=>`<button data-question="${i}" class="${questionIndex===i?'active':''} ${learning.correct.includes(q.id)?'done':''}" aria-label="第${i+1}题">${String(i+1).padStart(2,'0')}</button>`).join('')}</div><p>绿色表示你已独立答对。<br>看过解析也没关系，理解以后可以再做一次。</p><div class="thin-line"></div><h3>本课计算约定</h3>${data.id==='machine-learning'?'<p>优化目标：J = MSE / 2<br>梯度用旧参数同时计算。<br>L2 项：λ‖w‖² / 2，不惩罚 b。</p>':'<p>按题干给出的定义、单位与假设计算。遇到公式约定差异，以题目条件为准。</p>'}</aside></div>`:'<div class="empty">当前课程还没有这一难度的练习。</div>'}${referenceHtml()}`;}
-function renderSources(){return heading('Good learning starts with good context','从你的材料里，长出一门课。','选择对话、项目文件，或粘贴一段内容，老师会沿着你的上下文讲。')+`${!runtime.loggedIn?`<div class="runtime-notice">当前可阅读完整示例、切换故事、练习与导出。读取本机对话和使用 GPT 生成，需要打开本地版 <a href="http://127.0.0.1:4317" target="_blank">http://127.0.0.1:4317</a>，并保持本机服务运行。</div>`:''}<div class="source-grid"><div><section class="source-panel"><h2>把材料放在这里</h2><p>可以是最近的讨论、学习笔记、代码说明或项目复盘。生成前可以先核对内容。</p><textarea id="material-text" placeholder="例如：我们正在学习线性回归，希望理解为什么要用损失函数，以及梯度下降如何更新参数……" aria-label="学习材料"></textarea><div class="row">${btn(svg('plus')+'加入学习材料','add-text','soft')}<small class="muted" style="font-size:10px">支持中英文文本</small></div><label class="dropzone">${svg('folder','icon')}选择文本或对话导出文件<small>TXT / Markdown / JSON / CSV · 单文件不超过 2 MB</small><input type="file" id="material-file" accept=".txt,.md,.json,.jsonl,.csv" hidden multiple></label></section><section class="source-panel"><div class="row"><h2>已选择的上下文</h2><small class="muted" style="font-size:10px">${materials.length} 份</small></div>${materials.length?materials.map((m,i)=>`<div class="source-item">${svg('book')}<span>${esc(m.name)}<br><small>${m.text.length.toLocaleString()} 字符 · ${esc(m.kind||'导入文本')}</small></span><button class="btn-icon" data-remove-material="${i}" aria-label="删除${esc(m.name)}">${svg('trash')}</button></div>`).join(''):'<div class="empty">还没有添加材料。<br>当前正在学习内置的机器学习入门课程。</div>'}${sourcePreview?`<details open><summary class="text-button">材料预览</summary><pre class="source-preview">${esc(sourcePreview.slice(0,12000))}</pre></details>`:''}<div class="row" style="margin-top:18px">${btn(svg('spark')+'根据材料生成课程','generate-course','primary',busy||!materials.length?'disabled':'')}${btn('恢复机器学习示例','restore-demo','light')}</div><p><button class="text-button" data-action="reset-progress">重置本课学习进度</button></p><p>生成后会同步更新概览、课件、名词、公式和练习。故事按新课程单独生成。材料保存在当前浏览器，使用 GPT 时才交给本机 Codex 处理。</p></section></div><div><section class="source-panel"><div class="row"><h2>连接项目与对话</h2><span class="badge"><span class="dot"></span>${statusLabel()}</span></div><p>指定项目路径，只查找该目录对应的近期 Codex 对话。选择后再读取内容。</p><label for="project-root" style="font-size:10px;color:#9ba68e">本机项目目录</label><input id="project-root" value="${esc(projectRoot)}" placeholder="D:\\你的项目" style="margin-top:8px"><div class="row">${btn(svg('refresh')+'查找近期对话','find-sessions','light')}${btn(svg('folder')+'读取项目文本','read-project','light')}</div>${sessions.length?sessions.map(s=>`<div class="source-item"><span>${esc(s.name)}</span><button class="text-button" data-session="${esc(s.id)}">加入 ${svg('plus')}</button></div>`).join(''):'<p>点击查找后，列出最近 21 天内属于这个项目的对话。</p>'}<p>项目读取跳过隐藏目录、依赖、凭据文件和二进制文件。每个文件最多取 14,000 字符，总量约 100,000 字符；导入后可核对预览。</p></section><section class="source-panel"><h2>当前课程来源</h2><div class="source-item">${svg('book')}<span>${esc(data.title)}<br><small>${data.id==='machine-learning'?'内置原创课程 · 机器学习入门':'根据你选择的材料生成'}</small></span></div>${referenceHtml()}<div class="thin-line"></div><p>网页中的问答会附带当前章节、已导入材料与最近的聊天。网站无法自行读取其他浏览器页面或未经选择的聊天。</p><button class="text-button" data-action="refresh-runtime">重新检测本机连接 ${svg('refresh')}</button></section></div></div>`;}
+function renderSources(){
+  return sourcesView(snapshot());
+}
+
 function renderPage(){return ({overview:renderOverview,course:renderCourse,story:renderStory,glossary:renderGlossary,quiz:renderQuiz,sources:renderSources}[page])();}
 
-function renderTutor(){return `<section class="tutor-shell" aria-label="随时问老师"><div class="tutor">${chatOpen?`<div class="chat-controls"><span>与你一起想明白 · ${esc(pages[page])}</span><span><button data-action="clear-chat">清空</button><button data-action="toggle-chat" aria-label="收起问答">收起 ↓</button></span></div><div class="chat-history" id="chat-history" aria-live="polite">${chat.map(m=>`<div class="chat-message ${m.role}"><small>${m.role==='user'?'你':m.role==='error'?'连接提示':'知序老师 · Codex'}</small>${esc(m.text)}</div>`).join('')}${busy?`<div class="thinking"><span class="spinner"></span>${{chat:'老师正在组织讲解',course:'正在整理课程与练习',story:'正在编织故事'}[busy.type]}<button class="text-button" data-action="cancel-job">取消</button></div>`:''}</div>`:''}<div class="tutor-meta">${svg('spark')}<span class="label">随时问老师</span><span>·</span><span>已带上${page==='course'?'当前章节':'当前课程'}上下文</span><button class="connection" data-action="toggle-chat">${esc(statusLabel())} ${chatOpen?'⌄':'⌃'}</button></div><form class="tutor-input" id="chat-form"><input id="chat-input" placeholder="哪里还没想明白？在这里问就好……" aria-label="向老师提问" autocomplete="off" maxlength="4000"><button class="send" type="submit" aria-label="发送问题" ${busy?'disabled':''}>${svg('send')}</button></form><div class="suggestions"><button data-ask="用一个生活中的例子解释当前知识点">用生活中的例子解释</button><button data-ask="请把当前知识点的公式一步步推导，并解释每个符号">带我推一遍公式</button><button data-ask="当前知识点最容易混淆的地方是什么？">这里容易踩什么坑？</button></div></div></section>`;}
-function nav(target){page=target;history.replaceState(null,'',`#${target}`);render();window.scrollTo({top:0,behavior:'smooth'});}
+function renderTutor(){
+  return tutorView({...snapshot(),chat,draft:chatDraft});
+}
+
+function nav(target){
+  if(target==='sources'){openSources();return;}page=target;history.replaceState(null,'',`#${target}`);render();$('#main-content').scrollTop=0;
+}
+
 function resetAnswer(){answerFeedback=null;showHint=false;showSolution=false;}
 async function api(route,body){const res=await fetch(route,{method:body===undefined?'GET':'POST',headers:{'X-Learnmore-Client':'1',...(body===undefined?{}:{'Content-Type':'application/json'})},body:body===undefined?undefined:JSON.stringify(body)});let v;try{v=await res.json();}catch{throw new Error('此页面没有连接本机服务，请打开本地版后重试。');}if(!res.ok)throw new Error(v.error||'请求未完成。');return v;}
 async function refreshRuntime(){try{runtime=await api('/api/status');projectRoot=runtime.projectRoot||projectRoot;}catch{runtime={mode:'static',available:false,loggedIn:false};}render();}
-function needRuntime(){if(runtime.loggedIn)return true;chatOpen=true;chat.push({role:'error',text:runtime.available?'本机 Codex 尚未登录。请在终端运行 codex login，完成后在“学习材料”重新检测连接。':'当前为在线阅读版。实时 GPT 问答、材料生成与项目读取在本地版 http://127.0.0.1:4317 中运行。请启动项目的 start.ps1，再打开本地版。'});render();return false;}
-async function runJob(type,endpoint,body){if(busy){toast('请先等待当前任务完成，或在问答区取消。');return null;}if(!needRuntime())return null;let id;try{const job=await api(endpoint,body);id=job.id;busy={id,type};chatOpen=true;render();for(let attempt=0;attempt<190;attempt++){await new Promise(r=>setTimeout(r,1500));const j=await api(`/api/jobs/${id}`);if(j.status==='cancelled'){toast('已取消本次生成。');return null;}if(j.status==='error')throw new Error(j.error);if(j.status==='done')return j;}throw new Error('等待超时。请检查本机服务状态。');}catch(e){chat.push({role:'error',text:e.message});chatOpen=true;return null;}finally{busy=null;render();}}
+function needRuntime(){
+  if(runtime.loggedIn)return true;
+  chat.push({role:'error',text:runtime.available?'本机 Codex 尚未登录，请运行 codex login，完成后点击右上角重新连接。':'本机服务尚未就绪，请运行项目中的 start.ps1，再打开 http://127.0.0.1:4317。'});persistChat();render();return false;
+}
+
+async function runJob(type,endpoint,body){
+  if(busy||importBusy){toast('请先等待当前任务完成。');return null;}if(!needRuntime())return null;
+  busy={type,id:null,elapsed:0};render();
+  try{const job=await api(endpoint,body);busy.id=job.id;render();
+    for(let attempt=0;attempt<190;attempt++){await new Promise(r=>setTimeout(r,1500));const result=await api(`/api/jobs/${job.id}`);if(result.status==='cancelled'){toast('已停止。');return null;}if(result.status==='error')throw new Error(result.error);if(result.status==='done')return result;busy.elapsed=result.elapsed;const status=$('#job-status');if(status)status.textContent=`${{chat:'正在思考',course:'正在整理课程',story:'正在生成故事'}[type]} · ${result.elapsed} 秒`;}
+    throw new Error('等待超时，请检查本机服务。');
+  }catch(error){chat.push({role:'error',text:error.message});persistChat();return null;}finally{busy=null;render();}
+}
+
 function materialsText(){return materials.map(m=>`【${m.name}】\n${m.text}`).join('\n\n').slice(0,110000);}
-async function ask(message){if(!message.trim())return;if(busy){toast('老师正在处理当前任务，请稍候。');return;}if(!needRuntime())return;const context={title:data.title,summary:data.summary,location:pages[page],chapter:page==='course'?data.chapters[chapter]:undefined,question:page==='quiz'?currentQuestions()[questionIndex]:undefined,formulas:data.formulas,glossary:data.glossary};const history=chat.filter(m=>m.role!=='error').slice(-10);chat.push({role:'user',text:message});chatOpen=true;const result=await runJob('chat','/api/chat',{message,context,materials:materialsText(),history});if(result){chat.push({role:'assistant',text:result.text});render();}}
-function setCourse(next){if(!next||!Array.isArray(next.prerequisites)||typeof next.title!=='string'||typeof next.summary!=='string'||!Array.isArray(next.chapters)||!next.chapters.length||!Array.isArray(next.questions)||!next.questions.every(q=>typeof q.answer==='number'&&Array.isArray(q.steps))||!Array.isArray(next.formulas)||!Array.isArray(next.glossary))throw new Error('课程结构不完整，原课程已保留。');data=next;chapter=0;learning={read:[],correct:[]};generatedStories={};chat=[];chatOpen=false;resetAnswer();save('learnmore-course-v1',data);persist();nav('overview');}
-function addMaterial(name,text,kind='导入文本'){if(!text.trim()){toast('没有找到可加入的正文。');return;}if(materialsText().length+text.length>150000){toast('上下文已超过 150,000 字符，请删减后再加入。');return;}materials.push({name,text,kind});sourcePreview=text;save('learnmore-materials-v1',materials);render();toast(`已加入：${name}`);}
+async function ask(message){
+  if(!message.trim())return;if(busy||importBusy){toast('请先等待当前任务完成。');return;}if(!needRuntime())return;
+  const context={title:data.title,summary:data.summary,location:pages[page],materialPriority:materials.length?'优先依据已选材料，若与当前示例课程不同，不要混淆主题。':undefined,chapter:page==='course'?data.chapters[chapter]:undefined,question:page==='quiz'?currentQuestions()[questionIndex]:undefined,formulas:data.formulas,glossary:data.glossary};
+  const history=chat.filter(m=>m.role!=='error').slice(-10);chat.push({role:'user',text:message});chatDraft='';persistChat();
+  const result=await runJob('chat','/api/chat',{message,context,materials:materialsText(),history});
+  if(result){chat.push({role:'assistant',text:result.text});persistChat();render();}
+  $('#conversation')?.scrollIntoView({behavior:'smooth',block:'end'});
+}
+
+function setCourse(next){
+  if(!next||!Array.isArray(next.prerequisites)||typeof next.title!=='string'||typeof next.summary!=='string'||!Array.isArray(next.chapters)||!next.chapters.length||!Array.isArray(next.questions)||!next.questions.every(q=>typeof q.answer==='number'&&Array.isArray(q.steps))||!Array.isArray(next.formulas)||!Array.isArray(next.glossary))throw new Error('课程结构不完整，原课程已保留。');
+  data=next;chapter=0;learning=load(`learnmore-progress-${data.id}`,{read:[],correct:[]});generatedStories=load(`learnmore-stories-${data.id}`,{});chat=load(`learnmore-chat-${data.id}`,[]);chatDraft='';resetAnswer();save('learnmore-course-v1',data);persist();nav('overview');
+}
+
+function addMaterial(name,text,kind='导入文本',quiet=false){
+  if(busy){if(!quiet)toast('当前任务结束后再调整材料。');return false;}
+  if(!text.trim()){if(!quiet)toast('没有找到可加入的正文。');return false;}
+  if(materials.some(m=>m.name===name&&m.text===text)){if(!quiet)toast('这份材料已经加入。');return false;}
+  if(materials.reduce((n,m)=>n+m.text.length,0)+text.length>110000){if(!quiet)toast('材料总量超过约 110,000 字符，请先移除部分材料。');return false;}
+  materials.push({name:name.slice(0,250),text,kind});sourcePreview=text;materialDraft='';save('learnmore-materials-v1',materials);if(!quiet){render();toast(`已加入：${name}`);}return true;
+}
+
 function glossaryMd(){return `# ${data.title} · 名词与公式\n\n## 名词表\n\n${data.glossary.map(t=>`### ${t.term} / ${t.english}\n\n${t.definition}\n\n例：${t.example}`).join('\n\n')}\n\n## 底层公式\n\n${data.formulas.map(f=>`### ${f.name}\n\n${f.expression}\n\n符号：${f.variables}\n\n条件：${f.assumptions}\n\n例：${f.example}`).join('\n\n')}`;}
 function courseMd(){return `# ${data.title}\n\n${data.summary}\n\n${data.chapters.map((c,i)=>`## ${i+1}. ${c.title}\n\n${c.explanation}\n\n例：${c.example}\n\n公式：${c.formula}\n\n${c.formulaExplanation}\n\n记住：${c.takeaway}`).join('\n\n')}\n\n${glossaryMd()}\n\n## 练习\n\n${data.questions.map(q=>`### ${q.title} (${q.difficulty})\n\n${q.prompt}\n\n提示：${q.hint}\n\n解析：\n${q.steps.map(s=>'- '+s).join('\n')}\n\n结果：${q.answer}`).join('\n\n')}\n\n${data.id==='machine-learning'?'参考：\n'+references.map(r=>`- [${r.name}](${r.url})`).join('\n'):''}`;}
 function download(filename,text,type='text/markdown;charset=utf-8'){const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function exportBook(){download('知序-完整阅读版.html',`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(data.title)}</title><style>body{font-family:system-ui,"Microsoft YaHei",sans-serif;max-width:850px;margin:60px auto;padding:0 25px;color:#30412d;line-height:2}h1{font-size:32px}h2{margin-top:50px}p{white-space:pre-wrap}aside{background:#f1f5e9;padding:20px;border-radius:10px}small{color:#89947a}article{break-inside:avoid}a{color:inherit}@media print{body{margin:0}}</style><h1>${esc(data.title)}</h1><p>${esc(data.summary)}</p>${data.chapters.map((c,i)=>`<article><small>CHAPTER ${i+1}</small><h2>${esc(c.title)}</h2><p>${esc(c.explanation)}</p><aside>具体例子：${esc(c.example)}</aside><h3>公式</h3><aside>${esc(c.formula)}</aside><p>${esc(c.formulaExplanation)}</p><p>记住：${esc(c.takeaway)}</p></article>`).join('')}<h2>名词表</h2>${data.glossary.map(t=>`<h3>${esc(t.term)} · ${esc(t.english)}</h3><p>${esc(t.definition)}<br>例：${esc(t.example)}</p>`).join('')}<h2>底层公式</h2>${data.formulas.map(f=>`<h3>${esc(f.name)}</h3><aside>${esc(f.expression)}</aside><p>${esc(f.variables)}<br>条件：${esc(f.assumptions)}<br>例：${esc(f.example)}</p>`).join('')}<h2>练习与解析</h2>${data.questions.map(q=>`<h3>${esc(q.title)} (${q.difficulty})</h3><p>${esc(q.prompt)}</p><details><summary>提示与解析</summary><p>${esc(q.hint)}</p><ol>${q.steps.map(s=>`<li>${esc(s)}</li>`).join('')}</ol><p>答案：${q.answer}</p></details>`).join('')}${referenceHtml()}</html>`,'text/html;charset=utf-8');}
-function showSearch(){const modal=$('#modal');modal.innerHTML=`<button class="btn-icon modal-close" data-action="close-modal" aria-label="关闭">${svg('close')}</button><h2>找一找，想理解的知识</h2><input id="global-search" placeholder="输入“梯度”“参数”“过拟合”……" aria-label="搜索知识点"><div id="search-results"></div>`;modal.showModal();$('#global-search').focus();updateSearch('');}
+function showSearch(){modalKind='search';const modal=$('#modal');modal.innerHTML=`<button class="btn-icon modal-close" data-action="close-modal" aria-label="关闭">${svg('close')}</button><h2>找一找，想理解的知识</h2><input id="global-search" placeholder="输入“梯度”“参数”“过拟合”……" aria-label="搜索知识点"><div id="search-results"></div>`;modal.showModal();$('#global-search').focus();updateSearch('');}
 function updateSearch(query){const q=query.trim().toLowerCase();const chapters=data.chapters.map((c,i)=>({type:'章节',name:c.title,text:c.explanation,chapter:i}));const terms=data.glossary.map(t=>({type:'名词',name:t.term,text:t.english+' '+t.definition}));const all=[...chapters,...terms].filter(r=>!q||(r.name+r.text).toLowerCase().includes(q)).slice(0,9);$('#search-results').innerHTML=all.length?all.map(r=>`<button class="search-result" ${r.type==='章节'?`data-search-chapter="${r.chapter}"`:`data-search-term="${esc(r.name)}"`}>${esc(r.name)}<small>${r.type}</small></button>`).join(''):'<div class="empty">还没有找到，试试更短的关键词。</div>';}
+
+function snapshot(){return {pages,page,data,materials,learning,runtime,busy,importBusy,importLabel,materialNotice,materialDraft,projectRoot,sessions,sourcePreview,hasNewMaterials:materials.length>0&&data.sourceKey!==signature(materials)};}
+function persistChat(){save(`learnmore-chat-${data.id}`,chat.slice(-40));}
+function renderMaterialsDialog(){const opened=Array.from($('#modal').querySelectorAll('details')).map(d=>d.open);$('#modal').innerHTML=renderSources();Array.from($('#modal').querySelectorAll('details')).forEach((d,i)=>{if(opened[i])d.open=true;});}
+function openSources(){modalKind='materials';renderMaterialsDialog();if(!$('#modal').open)$('#modal').showModal();if(!materials.length){const paste=$('#modal').querySelector('.source-option');if(paste)paste.open=true;}}
+async function importFiles(entries){
+  if(busy||importBusy){toast('当前任务结束后再加入文件。');return;}if(!entries.length){toast('没有找到支持的文件，请选择 PDF、DOCX、PPTX 或文本。');return;}
+  const eligible=entries.filter(item=>isLearningFile(item.name));const limited=eligible.slice(0,80);const warnings=[];let added=0;if(entries.truncated)warnings.push('文件夹较大，本批最多读取 80 个文件');
+  if(eligible.length>80)warnings.push('每批最多读取 80 个文件');if(entries.length>eligible.length)warnings.push(`已略过 ${entries.length-eligible.length} 个不支持的文件`);
+  importBusy=true;render();
+  try{for(let i=0;i<limited.length;i++){
+    const {file,name}=limited[i];importLabel=`读取 ${i+1}/${limited.length} · ${file.name}`;render();
+    if(file.size>20*1024*1024){warnings.push(`${file.name} 超过 20 MB`);continue;}
+    try{const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let p=0;p<bytes.length;p+=32768)binary+=String.fromCharCode(...bytes.subarray(p,p+32768));
+      const result=await api('/api/import',{name:file.name,base64:btoa(binary)});
+      if(addMaterial(name,result.text,result.kind,true))added++;else if(!materials.some(m=>m.name===name&&m.text===result.text))warnings.push(`${file.name} 未加入：材料总量已满`);
+      if(result.truncated)warnings.push(`${file.name} 较长，已读取前部文字`);
+    }catch(error){warnings.push(`${file.name}：${error.message}`);}
+  }}finally{importBusy=false;importLabel='';materialNotice=warnings.slice(0,4).join('；');if(added){page='overview';history.replaceState(null,'','#overview');if($('#modal').open)$('#modal').close();}render();toast(added?`已加入 ${added} 份材料，可以开始提问。`:warnings[0]||'文件已经加入，无需重复添加。');}
+}
+let dragDepth=0;
+document.addEventListener('dragenter',e=>{if(Array.from(e.dataTransfer?.types||[]).includes('Files')){e.preventDefault();dragDepth++;$('#drag-overlay').hidden=false;}});
+document.addEventListener('dragover',e=>{if(Array.from(e.dataTransfer?.types||[]).includes('Files')){e.preventDefault();e.dataTransfer.dropEffect='copy';}});
+document.addEventListener('dragleave',e=>{if(Array.from(e.dataTransfer?.types||[]).includes('Files')){dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)$('#drag-overlay').hidden=true;}});
+document.addEventListener('drop',e=>{if(!Array.from(e.dataTransfer?.types||[]).includes('Files'))return;e.preventDefault();dragDepth=0;$('#drag-overlay').hidden=true;void droppedFiles(e.dataTransfer).then(importFiles).catch(error=>toast(error.message));});
+window.addEventListener('blur',()=>{dragDepth=0;$('#drag-overlay').hidden=true;});
+$('#modal').addEventListener('close',()=>{modalKind='';});
 
 document.addEventListener('click',async e=>{
   const el=e.target.closest('button,[data-nav]');if(!el)return;
@@ -76,21 +151,26 @@ document.addEventListener('click',async e=>{
   if(el.dataset.chapter!==undefined){chapter=Number(el.dataset.chapter);nav('course');return;}
   if(el.dataset.story){genre=el.dataset.story;nav('story');return;}
   if(el.dataset.genre){genre=el.dataset.genre;render();return;}
-  if(el.dataset.mode){mode=el.dataset.mode;render();return;}
+  if(el.dataset.mode){mode=el.dataset.mode;render();$('#main-content').scrollTop=0;return;}
   if(el.dataset.glossary){glossaryTab=el.dataset.glossary;render();return;}
   if(el.dataset.level){level=el.dataset.level;questionIndex=0;resetAnswer();render();return;}
   if(el.dataset.question!==undefined){questionIndex=Number(el.dataset.question);resetAnswer();render();return;}
   if(el.dataset.ask){await ask(el.dataset.ask);return;}
-  if(el.dataset.removeMaterial!==undefined){materials.splice(Number(el.dataset.removeMaterial),1);sourcePreview='';save('learnmore-materials-v1',materials);render();return;}
+  if(el.dataset.previewMaterial!==undefined){sourcePreview=materials[Number(el.dataset.previewMaterial)]?.text||'';openSources();return;}
+  if(el.dataset.removeMaterial!==undefined){if(busy||importBusy){toast('当前任务结束后再调整材料。');return;}materials.splice(Number(el.dataset.removeMaterial),1);sourcePreview='';materialNotice='';save('learnmore-materials-v1',materials);render();return;}
   if(el.dataset.searchChapter!==undefined){$('#modal').close();chapter=Number(el.dataset.searchChapter);nav('course');return;}
   if(el.dataset.searchTerm){$('#modal').close();termQuery=el.dataset.searchTerm;glossaryTab='terms';nav('glossary');return;}
   if(el.dataset.session){try{el.disabled=true;const result=await api('/api/sources/session?id='+encodeURIComponent(el.dataset.session));addMaterial(sessions.find(s=>s.id===el.dataset.session)?.name||'近期项目对话',result.text,'Codex 项目对话');}catch(e){toast(e.message);}finally{el.disabled=false;}return;}
   const action=el.dataset.action;
   try{switch(action){
-    case 'import':nav('sources');$('#material-text').focus();break;
+    case 'pick-files':if(!busy&&!importBusy)$('#material-file').click();break;
+    case 'pick-folder':if(!busy&&!importBusy)$('#material-folder').click();break;
+    case 'focus-chat':$('#conversation').scrollIntoView({behavior:'smooth',block:'end'});$('#chat-input').focus({preventScroll:true});break;
+    case 'download-course':exportBook();break;
+    case 'import':openSources();break;
     case 'start':{const i=data.chapters.findIndex(c=>!learning.read.includes(c.id));chapter=Math.max(0,i);nav('course');break;}
-    case 'prev-chapter':chapter=Math.max(0,chapter-1);render();window.scrollTo(0,0);break;
-    case 'next-chapter':if(!learning.read.includes(data.chapters[chapter].id))learning.read.push(data.chapters[chapter].id);persist();if(chapter<data.chapters.length-1){chapter++;render();window.scrollTo(0,0);}else{nav('quiz');toast('课程读完了，来亲手算一次。');}break;
+    case 'prev-chapter':chapter=Math.max(0,chapter-1);render();$('#main-content').scrollTop=0;break;
+    case 'next-chapter':if(!learning.read.includes(data.chapters[chapter].id))learning.read.push(data.chapters[chapter].id);persist();if(chapter<data.chapters.length-1){chapter++;render();$('#main-content').scrollTop=0;}else{nav('quiz');toast('课程读完了，来亲手算一次。');}break;
     case 'mark-read':{const c=data.chapters[Number(el.dataset.index)];if(!learning.read.includes(c.id))learning.read.push(c.id);persist();render();break;}
     case 'gradient-step':{const gw=([1,2].reduce((n,x)=>n+(demoW*x+demoB-2*x)*x,0))/2;const gb=([1,2].reduce((n,x)=>n+(demoW*x+demoB-2*x),0))/2;demoW-=0.1*gw;demoB-=0.1*gb;render();break;}
     case 'gradient-reset':demoW=0;demoB=0;render();break;
@@ -98,28 +178,38 @@ document.addEventListener('click',async e=>{
     case 'solution':showSolution=!showSolution;render();break;
     case 'prev-question':questionIndex=Math.max(0,questionIndex-1);resetAnswer();render();break;
     case 'next-question':if(questionIndex<currentQuestions().length-1)questionIndex++;else{level={easy:'medium',medium:'hard',hard:'easy'}[level];questionIndex=0;}resetAnswer();render();break;
-    case 'toggle-chat':chatOpen=!chatOpen;render();break;
-    case 'clear-chat':chat=[];render();break;
-    case 'cancel-job':if(busy)await api(`/api/jobs/${busy.id}/cancel`,{});break;
+
+    case 'clear-chat':chat=[];persistChat();render();break;
+    case 'cancel-job':if(busy?.id)await api(`/api/jobs/${busy.id}/cancel`,{});break;
     case 'search':showSearch();break;
     case 'close-modal':$('#modal').close();break;
-    case 'mobile-nav':{const old=$('.mobile-nav');if(old){old.remove();break;}const menu=document.createElement('nav');menu.className='mobile-nav';menu.innerHTML=Object.entries(pages).map(([k,v])=>`<button data-nav="${k}">${v}</button>`).join('');document.body.append(menu);break;}
+
     case 'add-text':{const text=$('#material-text').value;addMaterial(`学习笔记 ${materials.filter(m=>m.kind==='导入文本').length+1}`,text);break;}
-    case 'find-sessions':if(!needRuntime())break;projectRoot=$('#project-root').value;el.disabled=true;try{const r=await api('/api/sources/sessions?project='+encodeURIComponent(projectRoot));sessions=r.sessions;render();if(!sessions.length)toast('最近 21 天未找到此目录的对话，可以粘贴或导入文本。');}finally{el.disabled=false;}break;
-    case 'read-project':if(!needRuntime())break;projectRoot=$('#project-root').value;el.disabled=true;try{const r=await api('/api/sources/project?project='+encodeURIComponent(projectRoot));if(!r.items.length)toast('项目中没有可读取的文本，请先添加材料。');else{addMaterial(`项目：${r.root}`,r.items.map(f=>`文件：${f.name}\n${f.text}`).join('\n\n'),'项目文本');if(r.truncated)toast('已导入项目文本，内容因长度限制有所截断，请核对预览。');}}finally{el.disabled=false;}break;
-    case 'generate-course':{const r=await runJob('course','/api/generate',{materials:materialsText()});if(r){setCourse({...r.result,id:'course-'+Date.now()});toast('你的专属课程已经准备好。');}break;}
-    case 'generate-story':{customStyle=$('#custom-style')?.value||customStyle;if(genre==='custom'&&!customStyle.trim()){toast('先填写你喜欢的故事风格。');break;}const r=await runJob('story','/api/story',{course:data,materials:materialsText(),style:genre==='custom'?customStyle:stories[genre].label,length:storyLength});if(r){generatedStories[genre]=r.result;render();toast('新的故事已写好。');}break;}
+    case 'find-sessions':if(runtime.mode!=='local'){toast('请先启动本机服务。');break;}projectRoot=$('#project-root').value;el.disabled=true;try{const r=await api('/api/sources/sessions?project='+encodeURIComponent(projectRoot));sessions=r.sessions;render();if(!sessions.length)toast('最近 21 天未找到此目录的对话，可以粘贴或导入文本。');}finally{el.disabled=false;}break;
+    case 'read-project':if(runtime.mode!=='local'){toast('请先启动本机服务。');break;}projectRoot=$('#project-root').value;el.disabled=true;try{const r=await api('/api/sources/project?project='+encodeURIComponent(projectRoot));if(!r.items.length)toast('项目中没有可读取的文本，请先添加材料。');else{addMaterial(`项目：${r.root}`,r.items.map(f=>`文件：${f.name}\n${f.text}`).join('\n\n'),'项目文本');if(r.truncated)toast('已导入项目文本，内容因长度限制有所截断，请核对预览。');}}finally{el.disabled=false;}break;
+    case 'generate-course':{const r=await runJob('course','/api/generate',{materials:materialsText()});if(r){setCourse({...r.result,id:'course-'+Date.now(),sourceKey:signature(materials)});toast('你的专属课程已经准备好。');}break;}
+    case 'generate-story':{customStyle=$('#custom-style')?.value||customStyle;if(genre==='custom'&&!customStyle.trim()){toast('先填写你喜欢的故事风格。');break;}const r=await runJob('story','/api/story',{course:data,materials:materialsText(),style:genre==='custom'?customStyle:stories[genre].label,length:storyLength});if(r){generatedStories[genre]=r.result;save(`learnmore-stories-${data.id}`,generatedStories);render();toast('新的故事已写好。');}break;}
     case 'reset-progress':learning={read:[],correct:[]};persist();resetAnswer();render();toast('本课阅读与练习进度已重置。');break;
     case 'restore-demo':setCourse(demo);toast('已恢复机器学习课程，你的导入材料仍保留。');break;
     case 'refresh-runtime':await refreshRuntime();toast(runtime.loggedIn?'本机 Codex 已连接。':'本机连接尚未就绪。');break;
     case 'export-glossary':download('知序-名词与公式.md',glossaryMd());break;
     case 'export-story':{const s=generatedStories[genre]||stories[genre];if(s)download(`知序-${s.title}.md`,`# ${s.title}\n\n${s.subtitle}\n\n${s.sections.map(p=>`## ${p.title}\n\n${p.text}\n\n知识点：${p.concept}`).join('\n\n')}`);break;}
   }}catch(e){toast(e.message);}
-  $('.mobile-nav')?.remove();
 });
 document.addEventListener('submit',e=>{if(e.target.id==='chat-form'){e.preventDefault();const message=$('#chat-input').value;void ask(message);}if(e.target.id==='answer-form'){e.preventDefault();const q=currentQuestions()[questionIndex];const input=$('#quiz-answer').value;answerFeedback={...gradeAnswer(q,input),input};if(answerFeedback.correct&&!learning.correct.includes(q.id)){learning.correct.push(q.id);persist();}render();}});
-document.addEventListener('input',e=>{if(e.target.id==='global-search')updateSearch(e.target.value);if(e.target.id==='term-search'){const pos=e.target.selectionStart;termQuery=e.target.value;render();$('#term-search').focus();$('#term-search').setSelectionRange?.(pos,pos);}if(e.target.id==='custom-style')customStyle=e.target.value;});
-document.addEventListener('change',async e=>{if(e.target.id==='story-length')storyLength=e.target.value;if(e.target.id==='export-select'){const value=e.target.value;e.target.value='';if(value==='print'){mode='book';render();window.print();}if(value==='book')exportBook();if(value==='markdown')download('知序-课程与练习.md',courseMd());if(value==='glossary')download('知序-名词与公式.md',glossaryMd());}if(e.target.id==='material-file'){for(const file of e.target.files){if(file.size>2_000_000){toast(`${file.name} 超过 2 MB，请分段导入。`);continue;}addMaterial(file.name,await file.text(),'本地文件');}}});
-document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();showSearch();}if(page==='course'&&!['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)&&!$('#modal').open){if(e.key==='ArrowRight'&&chapter<data.chapters.length-1){chapter++;render();}if(e.key==='ArrowLeft'&&chapter>0){chapter--;render();}}});
+document.addEventListener('input',e=>{
+  if(e.target.id==='chat-input')chatDraft=e.target.value;if(e.target.id==='material-text')materialDraft=e.target.value;if(e.target.id==='project-root')projectRoot=e.target.value;
+  if(e.target.id==='global-search')updateSearch(e.target.value);
+  if(e.target.id==='term-search'){const pos=e.target.selectionStart;termQuery=e.target.value;render();$('#term-search').focus();$('#term-search').setSelectionRange?.(pos,pos);}
+  if(e.target.id==='custom-style')customStyle=e.target.value;
+});
+document.addEventListener('change',async e=>{
+  if(e.target.id==='story-length')storyLength=e.target.value;
+  if(e.target.id==='export-select'){const value=e.target.value;e.target.value='';if(value==='print'){mode='book';render();window.print();}if(value==='book')exportBook();if(value==='markdown')download('知序-课程与练习.md',courseMd());if(value==='glossary')download('知序-名词与公式.md',glossaryMd());}
+  if(['material-file','material-folder'].includes(e.target.id)){const entries=Array.from(e.target.files).map(file=>({file,name:file.webkitRelativePath||file.name}));e.target.value='';await importFiles(entries);}
+});
+document.addEventListener('keydown',e=>{if(e.target.id==='chat-input'&&e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();if(!busy&&!importBusy)$('#chat-form').requestSubmit();}});
+document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();showSearch();}if(page==='course'&&!['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)&&!$('#modal').open){if(e.key==='ArrowRight'&&chapter<data.chapters.length-1){chapter++;render();$('#main-content').scrollTop=0;}if(e.key==='ArrowLeft'&&chapter>0){chapter--;render();$('#main-content').scrollTop=0;}}});
 window.addEventListener('hashchange',()=>{if(pages[location.hash.slice(1)]){page=location.hash.slice(1);render();}});
+$('#material-file').accept=Array.from(supportedExtensions,e=>'.'+e).join(',');
 render();void refreshRuntime();

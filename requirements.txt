@@ -1,0 +1,3 @@
+# Optional: text/code imports work with Node.js alone.
+# Python's standard library handles DOCX and PPTX; this adds text-PDF support.
+pypdf>=5

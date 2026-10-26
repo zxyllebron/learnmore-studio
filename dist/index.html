@@ -4,10 +4,10 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#f6f8f4">
   <meta name="description" content="知序 Learnmore：把对话和项目转成知识概览、互动课程、故事与分级练习。">
-  <title>知序 Learnmore · 机器学习工作台</title>
+  <title>知序 Learnmore · 本地学习工作台</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='14' fill='%23294132'/%3E%3Cpath d='M12 14q7-2 12 3 5-5 12-3v21q-7-2-12 2-5-4-12-2Z' fill='none' stroke='%23d9efaf' stroke-width='3'/%3E%3Cpath d='M24 17v20' stroke='%23d9efaf' stroke-width='2'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/styles.css">
   <script type="module" src="/app.mjs"></script>
 </head>
-<body><div id="app"></div><div id="toast" role="status" aria-live="polite"></div><dialog id="modal"></dialog></body>
+<body><div id="app"></div><input type="file" id="material-file" aria-label="选择学习文件" multiple hidden><input type="file" id="material-folder" aria-label="选择学习文件夹" webkitdirectory multiple hidden><div id="drag-overlay" hidden><div>松开文件，加入学习材料<span>文件和文件夹都可以拖入</span></div></div><div id="toast" role="status" aria-live="polite"></div><dialog id="modal"></dialog></body>
 </html>
